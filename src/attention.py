@@ -4,7 +4,7 @@ from keras import backend as K
 
 """
     Attention code by Christos Baziotis https://gist.github.com/cbaziotis/6428df359af27d58078ca5ed9792bd6d,
-    follows work of Raffel et al. [https://arxiv.org/abs/1512.08756] .
+    follows work of Raffel et al. [https://arxiv.org/abs/1512.08756]
 """
 def dot_product(x, kernel):
     """

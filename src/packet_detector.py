@@ -1,20 +1,16 @@
 from attention import Attention
-import csv
+import numpy as np
+import pickle
 from data_generator import DataGenerator
-import glob
+import matplotlib.pyplot as plt
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
 from keras.layers import Dense, Dropout, LSTM, Reshape, TimeDistributed, Input
-from keras.layers import Dropout
 from keras.layers.embeddings import Embedding
 from keras.layers.wrappers import Bidirectional
 from keras.models import Sequential, Model, model_from_json
 from keras.optimizers import Adam
 import model_parameters
-import numpy as np
-import os
-import pickle
-from random import randint, random
 from sklearn.metrics import precision_recall_curve
 import tensorflow as tf
 
@@ -52,6 +48,7 @@ class KerasNeuralNetwork():
 
 
 
+
     def model(self):
         config = model_parameters.model_config()
         model = Sequential()
@@ -59,18 +56,17 @@ class KerasNeuralNetwork():
         model.add(Reshape((config.time_steps, (config.token_embedding_dim * config.num_of_fields)),
                           input_shape=((config.num_of_fields * config.time_steps), config.token_embedding_dim)))
         model.add(Dropout(config.dropout_rate))
-        
-        model.add(Bidirectional(LSTM(config.token_embedding_dim * config.num_of_fields , return_sequences=True)))
+        model.add(Bidirectional(LSTM(config.token_embedding_dim * config.num_of_fields, return_sequences=True)))
+        model.add(Dropout(config.dropout_rate))
         model.add(Attention())
         model.add(Dense(2, activation='softmax'))
-
+ 
         model.compile(optimizer=Adam(lr=config.lr, clipvalue=5.0),
                       loss=config.loss,
                       metrics=['binary_accuracy'])
         print(model.summary())
-
+ 
         return model
-    
 
 
     def train(self, vocabulary, dictionaryOfFrequencies):
@@ -78,12 +74,16 @@ class KerasNeuralNetwork():
         config = model_parameters.train_config()
         
         training_generator = DataGenerator(range(96), config.input_directory_train, batch_size=config.batch_size)
-        validation_generator = DataGenerator(range(96, 100), config.input_directory_train, batch_size=config.batch_size)
+        validation_generator = DataGenerator(range(96,101), config.input_directory_train, batch_size=config.batch_size)
 
         model = self.model()
         # checkpoint
-        checkpoint = ModelCheckpoint(config.weights_path, monitor='val_acc', verbose=1, save_best_only=False,
-                                     save_weights_only=False, mode='auto', period=1)
+        checkpoint = ModelCheckpoint(config.model_path,
+                                     monitor='val_acc',
+                                     verbose=1,
+                                     save_best_only=False,
+                                     mode='max')
+        
         callbacks_list = [checkpoint]
 
         steps_per_epoch = config.train_examples / config.batch_size
@@ -92,8 +92,9 @@ class KerasNeuralNetwork():
         print("Start model training")
         # fit the model
         fit_model_result = model.fit_generator(generator=training_generator.flow_from_directory(),
-                                                validation_data=validation_generator.flow_from_directory(),
-                                                steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=config.epochs)
+                                               validation_data=validation_generator.flow_from_directory(),
+                                               steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=config.epochs,
+                                               callbacks=[checkpoint])
 
         # serialize model to JSON
         print("Saving model to disk.")
@@ -112,7 +113,7 @@ class KerasNeuralNetwork():
     def test(self, vocabulary, dictionaryOfFrequencies):
   
         config = model_parameters.test_config()
-        test_generator = DataGenerator(range(5), batch_size=BATCH_SIZE)   
+        test_generator = DataGenerator(range(5), batch_size=config.batch_size)   
         loaded_model = self.load_saved_model(config.model_path, config.weights_path)
 
         precision = self.as_keras_metric(tf.metrics.precision)
@@ -124,8 +125,10 @@ class KerasNeuralNetwork():
                                      [precision, recall] + 
                                      [self.precision_threshold(i) for i in np.linspace(0.1, 0.9, 9)] + 
                                      [self.recall_threshold(i) for i in np.linspace(0.1, 0.9, 9)])
-
-        metrics = loaded_model.evaluate_generator(test_generator.flow_from_directory(), steps=test_examples / BATCH_SIZE, verbose=VERBOSE)
+        
+        
+        test_steps = config.test_examples/config.batch_size
+        metrics = loaded_model.evaluate_generator(test_generator.flow_from_directory(), steps=test_steps, verbose=1)
         print('Accuracy: %f' % (metrics[1] * 100))
         print('F1: %f' % (self.f1_measure(metrics[3], metrics[2]) * 100))
         print('Recall: %f' % (metrics[2] * 100))
@@ -136,7 +139,7 @@ class KerasNeuralNetwork():
         print("Recall over different thresholds")
         print(metrics[13:])
         
-        predict = loaded_model.predict_generator(test_generator.flow_from_directory(), steps=test_examples / BATCH_SIZE, verbose=VERBOSE)
+        predict = loaded_model.predict_generator(test_generator.flow_from_directory(), steps=test_steps, verbose=1)
         with open('output_predictions.txt', 'w') as f:
             for _list in predict:
                 for _string in _list:
@@ -176,7 +179,6 @@ class KerasNeuralNetwork():
         return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
     def precision_recall_plot(self, y_true, y_pred):
-        import tensorflow as tf
         y_true = tf.keras.backend.eval(y_true)
         y_pred = tf.keras.backend.eval(y_pred)
         print(y_true)

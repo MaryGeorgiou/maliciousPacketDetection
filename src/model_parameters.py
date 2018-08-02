@@ -12,7 +12,7 @@ class _Parameteres(object):
 
 def model_config(vocab_size=30887,
                  dropout_rate=0.3,
-                 time_steps=40,
+                 time_steps=50,
                  lr=0.000001,
                  token_embedding_dim=40,
                  num_of_fields=41,
