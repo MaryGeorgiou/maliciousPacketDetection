@@ -2,6 +2,10 @@ from attention import Attention
 import numpy as np
 import pickle
 from data_generator import DataGenerator
+import matplotlib as mpl
+
+mpl.use('Agg')
+
 import matplotlib.pyplot as plt
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
@@ -47,8 +51,6 @@ class KerasNeuralNetwork():
  #==============================================================================
 
 
-
-
     def model(self):
         config = model_parameters.model_config()
         model = Sequential()
@@ -62,7 +64,7 @@ class KerasNeuralNetwork():
         model.add(Dense(2, activation='softmax'))
  
         model.compile(optimizer=Adam(lr=config.lr, clipvalue=5.0),
-                      loss=config.loss,
+                      loss=self.weighted_categorical_crossentropy([0.7,0.3]),
                       metrics=['binary_accuracy'])
         print(model.summary())
  
@@ -77,13 +79,10 @@ class KerasNeuralNetwork():
         validation_generator = DataGenerator(range(96,101), config.input_directory_train, batch_size=config.batch_size)
 
         model = self.model()
-        # checkpoint
-        checkpoint = ModelCheckpoint(config.model_path,
-                                     monitor='val_acc',
-                                     verbose=1,
-                                     save_best_only=False,
-                                     mode='max')
         
+        #checkpointing
+        filepath= config.model_path+"-{epoch:02d}.hdf5"
+        checkpoint = ModelCheckpoint(filepath, monitor='loss', verbose=1, save_best_only=True, mode='min')
         callbacks_list = [checkpoint]
 
         steps_per_epoch = config.train_examples / config.batch_size
@@ -94,19 +93,7 @@ class KerasNeuralNetwork():
         fit_model_result = model.fit_generator(generator=training_generator.flow_from_directory(),
                                                validation_data=validation_generator.flow_from_directory(),
                                                steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=config.epochs,
-                                               callbacks=[checkpoint])
-
-        # serialize model to JSON
-        print("Saving model to disk.")
-        model_json = model.to_json()
-        with open(config.model_path, "w") as json_file:
-            json_file.write(model_json)
-        # serialize weights to HDF5
-        model.save_weights(config.weights_path)
-        print("Saved model to disk")
-
-        return model
-    
+                                               callbacks=[checkpoint]) 
     
     
 
@@ -249,7 +236,9 @@ class KerasNeuralNetwork():
             
         print("Vocabulary and dictionary of frequencies loaded.")
         
-        if (train): self.train(vocabulary, dictionaryOfFrequencies)
+        if (train):
+ 		print("Training starts")
+		self.train(vocabulary, dictionaryOfFrequencies)
         else: self.test(vocabulary, dictionaryOfFrequencies)
 
 

@@ -72,8 +72,8 @@ def train_config(input_directory_train="data_1/",
     config.epochs = epochs
     config.train_examples = train_examples
     config.validation_examples = validation_examples
-    config.model_path = checkpoint_path + "model_attention_keras.json"
-    config.weights_path = checkpoint_path + "model_attention_keras.json"
+    config.model_path = checkpoint_path + "model_attention_weighted_crossentropy_keras.json"
+    config.weights_path = checkpoint_path + "model_attention_weighted_crossentropy_keras.json"
     return config
  
  
