@@ -9,7 +9,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Dense, Dropout, LSTM, Reshape, TimeDistributed, Input
+from keras.layers import Dense, Dropout, LSTM, Reshape, TimeDistributed, Input, Lambda, Concatenate
 from keras.layers.embeddings import Embedding
 from keras.layers.wrappers import Bidirectional
 from keras.models import Sequential, Model, model_from_json
@@ -26,7 +26,11 @@ class KerasNeuralNetwork():
 
 
 
- 
+    def split_steps(self,x,vector_size):
+        past = x[:vector_size+1]
+        future = x[vector_size:]
+        return past, future
+   
  #==============================================================================
  # 
  #    def model(self):
@@ -51,7 +55,7 @@ class KerasNeuralNetwork():
  #==============================================================================
 
 
-    def model(self):
+    def model_2(self):
         config = model_parameters.model_config()
         model = Sequential()
         model.add(Embedding(config.vocab_size, config.token_embedding_dim, input_length=(config.num_of_fields * config.time_steps)))
@@ -62,6 +66,31 @@ class KerasNeuralNetwork():
         model.add(Dropout(config.dropout_rate))
         model.add(Attention())
         model.add(Dense(2, activation='softmax'))
+ 
+        model.compile(optimizer=Adam(lr=config.lr, clipvalue=5.0),
+                      loss=self.weighted_categorical_crossentropy([0.7,0.3]),
+                      metrics=['binary_accuracy'])
+        print(model.summary())
+ 
+        return model
+    
+    
+    
+    def model(self):
+        config = model_parameters.model_config()
+        inputs = Input(shape=(config.num_of_fields * config.time_steps,))
+        embeddings = Embedding(config.vocab_size, config.token_embedding_dim, 
+                               input_length=(config.num_of_fields * config.time_steps))(inputs)
+        reshape = Reshape((config.time_steps, (config.token_embedding_dim * config.num_of_fields)),
+                          input_shape=((config.num_of_fields * config.time_steps), config.token_embedding_dim))(embeddings)
+        dropout_embeddings = Dropout(config.dropout_rate)(reshape)
+        past_future = Lambda(lambda x : (x[:20+1],x[20:]))(dropout_embeddings)
+        past = LSTM(config.token_embedding_dim * config.num_of_fields,  go_backwards=True, return_sequences=True)(past_future[0])
+        future = LSTM(config.token_embedding_dim * config.num_of_fields,  go_backwards=False, return_sequences=True)(past_future[1])
+        merged = Concatenate([past, future])
+        attention =  Attention()(merged)
+        outputs = Dense(2, activation='softmax')(attention)
+        model = Model(inputs=inputs, outputs=outputs)
  
         model.compile(optimizer=Adam(lr=config.lr, clipvalue=5.0),
                       loss=self.weighted_categorical_crossentropy([0.7,0.3]),
