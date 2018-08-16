@@ -51,7 +51,7 @@ class PreprocessData():
     
     
      
-    def load_data(self, allFiles, training=True, time_data=False, num_of_logs=40):
+    def write_data(self, allFiles, training=True, time_data=False, num_of_logs=40):
         config = model_parameters.train_config()
         
         with open(config.vocabulary_dir, 'rb') as handle:
@@ -126,9 +126,7 @@ class PreprocessData():
                         labels = []
                         id = id + 1
                         if (r == row_count - 1): r = 0
-     
-    
-    
+       
 
 
 if __name__ == '__main__':

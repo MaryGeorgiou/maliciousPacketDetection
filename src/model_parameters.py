@@ -83,7 +83,7 @@ def test_config(input_directory_test="data_test/",
                 frequency_dict_dir="word_frequencies.pickle",
                 checkpoint_path="kdd_models/",
                 batch_size=128,
-                test_examples=31103):
+                test_examples=50001*2):
     """Creates a model configuration object.
     Args:
         input_directory_test directory with files with test data and labels,
@@ -103,6 +103,6 @@ def test_config(input_directory_test="data_test/",
     config.frequency_dict_dir = frequency_dict_dir
     config.batch_size = batch_size
     config.test_examples = test_examples
-    config.model_path = checkpoint_path + "model_attention_keras.json"
-    config.weights_path = checkpoint_path + "model_attention_keras.json"
+    config.model_path = checkpoint_path + "model_keras.json"
+    config.weights_path = checkpoint_path + "model_keras.json"
     return config
