@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-
+import os
 from attention import Attention
 import numpy as np
 import pickle
@@ -76,27 +76,30 @@ class KerasNeuralNetwork():
     def model(self):
         config = model_parameters.model_config()
         inputs = Input(shape=(config.num_of_fields * config.time_steps,))
-        embeddings = Embedding(config.vocab_size, config.token_embedding_dim, 
+        embeddings = Embedding(config.vocab_size, config.token_embedding_dim,
                                input_length=(config.num_of_fields * config.time_steps))(inputs)
         reshape = Reshape((config.time_steps, (config.token_embedding_dim * config.num_of_fields)),
                           input_shape=((config.num_of_fields * config.time_steps), config.token_embedding_dim))(embeddings)
         dropout_embeddings = Dropout(config.dropout_rate)(reshape)
-        past = Lambda(lambda x : x[:25+1], output_shape=(26,1640))(dropout_embeddings)
-        future = Lambda(lambda x : x[25:])(dropout_embeddings)
+        past = Lambda(lambda x : x[:,:26,:])(dropout_embeddings)
+        future = Lambda(lambda x : x[:,25:,:])(dropout_embeddings)
         past_LSTM = LSTM(config.token_embedding_dim * config.num_of_fields,  go_backwards=True, return_sequences=True)(past)
         future_LSTM = LSTM(config.token_embedding_dim * config.num_of_fields,  go_backwards=False, return_sequences=True)(future)
-        merged = Concatenate([past_LSTM, future_LSTM])
-        attention =  Attention()(merged)
-        outputs = Dense(2, activation='softmax')(attention)
+        #merged = Concatenate(axis=1)([past_LSTM, future_LSTM])
+        attention_1 =  Attention()(past_LSTM)
+        attention_2 = Attention()(future_LSTM)
+        merged = Concatenate(axis=1)([attention_1, attention_2])
+        dense1 = Dense(2000, activation='softmax')(merged)
+        dense2 = Dense(1000, activation='softmax')(dense1)
+        outputs = Dense(2, activation='softmax')(dense2)
         model = Model(inputs=inputs, outputs=outputs)
- 
+
         model.compile(optimizer=Adam(lr=config.lr, clipvalue=5.0),
-                      loss=self.weighted_categorical_crossentropy([0.7,0.3]),
+                      loss="categorical_crossentropy",
                       metrics=['binary_accuracy'])
         print(model.summary())
- 
-        return model
 
+        return model
 
 
 
@@ -104,7 +107,7 @@ class KerasNeuralNetwork():
         config = model_parameters.train_config()
         
         training_generator = DataGenerator(range(96), config.input_directory_train, batch_size=config.batch_size)
-        validation_generator = DataGenerator(range(96,101), config.input_directory_train, batch_size=config.batch_size)
+        validation_generator = DataGenerator(range(96,100), config.input_directory_train, batch_size=config.batch_size)
 
         model = self.model()
         
@@ -115,37 +118,58 @@ class KerasNeuralNetwork():
 
         steps_per_epoch = config.train_examples / config.batch_size
         validation_steps = config.validation_examples / config.batch_size
-        
+        class_weight ={0:10., 1:0.2} 
         print("Start model training")
         # fit the model
         fit_model_result = model.fit_generator(generator=training_generator.flow_from_directory(),
                                                validation_data=validation_generator.flow_from_directory(),
-                                               steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=config.epochs,
+                                               steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, class_weight = class_weight, epochs=config.epochs,
                                                callbacks=[checkpoint])
     
     
 
 
+        
     def test(self):
         config = model_parameters.test_config()
-        test_generator = DataGenerator(range(2),'data_test/' ,batch_size=config.batch_size)
+        precisions = []
+        recalls = []
+        f1_s = []
+        model_dir = config.model_path
+        for f in os.listdir(model_dir):
+            p =[]
+            r =[]
+            config = model_parameters.test_config()
+            test_generator = DataGenerator(range(2),'data_test_middle/' ,batch_size=config.batch_size, train=False)
         
-        loaded_model = load_model('model_attention_keras.json-01.hdf5')
-        print(loaded_model.summary())
+            loaded_model = load_model(model_dir+f,custom_objects={"Attention": Attention})
+            print(loaded_model.summary())
    
-        # evaluate loaded model on test data
-        loaded_model.compile(loss="categorical_crossentropy", optimizer=Adam())
-        test_steps = config.test_examples/config.batch_size      
-        predict = loaded_model.predict_generator(test_generator.flow_from_directory(), steps=test_steps+1, verbose=1)
+            # evaluate loaded model on test data
+            loaded_model.compile(loss="categorical_crossentropy", optimizer=Adam())
+            test_steps = (config.test_examples/config.batch_size)
+            predict = loaded_model.predict_generator(test_generator.flow_from_directory(), steps=test_steps, verbose=1)
         
-        y_true = []
-        for i in range(2):
-            y_true = np.append(y_true,np.load('data_test/'+str(i)+'labels_middle_test.npy'))
+            y_true = []
+            for i in range(2):
+                y_true = np.append(y_true,np.load('data_test_middle/'+str(i)+'labels_middle_test.npy'))
 
-        predict = predict[:, 1] 
-        p, r = self.precision_recall_curves(y_true, predict)
-        self.precision_recall_plot(self, p, r)
-
+            y = predict[:,-1] 
+            
+            if len(y) !=  len(y_true):
+                diff = len(y_true)-len(y)
+                y_true = y_true[:-diff]
+            
+            p, r, f1 = self.precision_recall_curves(y_true, y)
+            print(f1)   
+            print(p)
+            print(r)
+            precisions.append(p)
+            recalls.append(r)
+            f1_s.append(f1)
+        np.save("kdd_models/precisions.npy", precisions)
+        np.save("kdd_models/recalls.npy", recalls)
+        np.save("kdd_models/f1.npy", f1_s)
         
     
         
@@ -162,31 +186,18 @@ class KerasNeuralNetwork():
 
 
 
-    def precision_recall_plot(self, precision, recall):
-        plt.step(recall, precision, color='b', alpha=0.2,where='post')
-        plt.fill_between(recall, precision, step='post', alpha=0.2, color='b')
+
+    def precision_recall_plot(self, precisions, recalls):
+        plt.gca().set_color_cycle(['red', 'green', 'blue', 'yellow'])
+        for i in range(5):
+            plt.plot(precisions[i],recalls[i])          
+            plt.legend(['1 epoch', '2 epochs', '3 epochs', '4 epochs'], loc='upper left')
         plt.xlabel('Recall')
         plt.ylabel('Precision')
         plt.ylim([0.0, 1.05])
         plt.xlim([0.0, 1.0])
         plt.show()
-        plt.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(np.average(precision)))
-
-
-
-    def weighted_categorical_crossentropy(self, weights):
-        weights = K.variable(weights)
-
-        def loss(y_true, y_pred):
-            # scale predictions so that the class probas of each sample sum to 1
-            y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-            # clip to prevent NaN's and Inf's
-            y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-            # calc
-            loss = y_true * K.log(y_pred) * weights
-            loss = -K.sum(loss, -1)
-            return loss
-        return loss
+        plt.title('2-class Precision-Recall curve: AP={0:0.2f}'.format(0.00005))
     
     
     def main(self, train=True):

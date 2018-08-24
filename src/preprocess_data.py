@@ -2,10 +2,10 @@ from __future__ import print_function
 
 import csv
 from itertools import islice
-import model_parameters
 import numpy as np
 import os
 import pickle
+
 from pyspark import SparkContext, SparkConf
 from pyspark.ml.feature import Bucketizer
 from pyspark.sql import SQLContext
@@ -21,14 +21,14 @@ class PreprocessData():
 
 
     # we pass a df and the field column we want to bucketize
-    def bucketize(self, df, field, step=100):
+    def bucketize(self, df, field):
         df = df.withColumn(field, df[field].cast("double"))
         max = df.agg({field: "max"}).collect()[0][0]
         min = df.agg({field: "min"}).collect()[0][0]
         stddev = df.agg({field: "stddev"}).collect()[0][0]
         number_of_buckets = 1
         if stddev != 0:
-            number_of_buckets = max - min / (stddev)
+            number_of_buckets = ((max - min) // (stddev))
         buckets = np.arange(number_of_buckets, dtype=np.float).tolist()
         buckets = [-float('inf')] + buckets + [float('inf')]
         bucketizer = Bucketizer(splits=buckets, inputCol=field,
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     _sqlC = SQLContext(_sc)
     
 
-
+ 
     schema = StructType([
         StructField("duration", StringType(), True),
         StructField("protocol_type", StringType(), True),
@@ -182,9 +182,11 @@ if __name__ == '__main__':
         StructField("answer", StringType(), True)
     ])
 
+    
+
     final_struc = StructType(fields=schema)
-    df = _sqlC.read.csv(sys.argv[1], schema=final_struc, inferSchema=True, header=True)
- 
+    rdd_kdd  = _sc.textFile(sys.argv[1]).map(lambda x : x.split(","))
+    df = _sqlC.createDataFrame(rdd_kdd, schema=schema)
     preprocessing = PreprocessData()
     
     continues_data_for_bucket_labels = ["duration", "dst_bytes", "count", "serror_rate", "rerror_rate", "same_srv_rate",
@@ -194,7 +196,7 @@ if __name__ == '__main__':
     for col in continues_data_for_bucket_labels:
         df = preprocessing.bucketize(df, col)
 
-    field_names = ["duration_bucketized", "src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent",
+    field_names = ["duration_bucketized","src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent",
                    "hot", "num_failed_logins", "logged_in", "num_compromised", "root_shell", "su_attempted", "num_root",
                    "num_file_creations", "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
                    "is_guest_login", "count_bucketized", "srv_count_bucketized", "serror_rate_bucketized",
@@ -204,11 +206,12 @@ if __name__ == '__main__':
                    "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
                    "dst_host_srv_serror_rate", "dst_host_rerror_rate", "dst_host_srv_rerror_rate"]
 
+   
     for field in field_names:
         df = preprocessing.field_name_changer(df, field)
 
  
-    logs_fields = [ item + "_enc" for item in field_names] + ["answer"]
+    logs_fields = ["protocol_type","flag","service"]+[ item + "_enc" for item in field_names] + ["answer"]
  
     df = df.select(func.concat_ws(",", *logs_fields))
     
@@ -223,7 +226,7 @@ if __name__ == '__main__':
     
     word_frequencies = alltokens.map(lambda token : (token, 1)).reduceByKey(lambda a, b: a + b).sortBy(lambda x :-x[1])
     with open("word_frequencies.pickle", 'wb') as handle:
-        pickle.dump(word_frequencies.collect(), handle, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(word_frequencies.collectAsMap(), handle, protocol=pickle.HIGHEST_PROTOCOL)
     
 
     _sc.stop()
