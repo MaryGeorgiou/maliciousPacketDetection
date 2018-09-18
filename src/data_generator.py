@@ -15,11 +15,11 @@ class DataGenerator():
 
     def flow_from_directory(self):
         if self.train==True:
-            dir = 'kdd_indexed.csv'
-            dir_l = 'labeds.npy'
+            dir = 'kdd_indexed._middle.csv'
+            dir_l = 'labels.npy'
         else:
-            dir = 'kdd_indexed_test.csv'
-            dir_l = 'labeds_test.npy'
+            dir = 'kdd_indexed_middle_test.csv'
+            dir_l = 'labels_test.npy'
         while True:
             X = []
             Y = []
