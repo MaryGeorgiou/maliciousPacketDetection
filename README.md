@@ -1,4 +1,4 @@
-# Malicious packet detection (Under development)
+# Malicious packet detection
 Deep neural network models for malicious packet detection.
 In this work we introduce a network intrusion detection approach (NIDS) for network conncetion records, which is based on deep learning methods for natural language processing (NLP).
 
